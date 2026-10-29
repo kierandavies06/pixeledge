@@ -1,10 +1,17 @@
 name: Release
 
-# Push a tag like v1.0.0 to build signed APKs and attach them to a GitHub release.
-# Needs these repository secrets: KEYSTORE_BASE64 (base64 of your .jks/.keystore), KS_PASS, KEY_ALIAS.
+# Builds signed APKs, uploads them as two workflow artifacts (phone, watch) and attaches both to a GitHub release.
+#   - Push a tag like v1.0.0, or
+#   - run it manually from the Actions tab and enter a version (the tag is created for you).
+# Needs these repository secrets: KEYSTORE_BASE64 (base64 -w0 of your .jks/.keystore), KS_PASS, KEY_ALIAS.
 on:
   push:
     tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version to release, e.g. 1.0.0 (creates tag v1.0.0 on the selected commit)"
+        required: true
 
 permissions:
   contents: write
@@ -14,6 +21,14 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0   # the build number is the git commit count
+
+      - name: Work out the version
+        run: |
+          if [ "$GITHUB_REF_TYPE" = tag ]; then TAG="$GITHUB_REF_NAME"; else TAG="v${{ inputs.version }}"; fi
+          echo "TAG=$TAG" >> "$GITHUB_ENV"
+          echo "VERSION=${TAG#v}" >> "$GITHUB_ENV"
 
       - name: Cache toolchain
         uses: actions/cache@v4
@@ -34,16 +49,44 @@ jobs:
         run: |
           echo "$KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/release.keystore"
           export KEYSTORE="$RUNNER_TEMP/release.keystore"
-          export VERSION="${GITHUB_REF_NAME#v}"
-          export VERSION_CODE="${GITHUB_RUN_NUMBER}"
           ./build.sh app
           ./build.sh watch
+          rm -f "$RUNNER_TEMP/release.keystore"
           cp build/app/edgelight.apk edge-light-phone.apk
           cp build/watch/edgelight.apk edge-light-watch.apk
-          sha256sum edge-light-*.apk > SHA256SUMS
-          rm -f "$RUNNER_TEMP/release.keystore"
+
+      - name: Verify signatures and write checksums
+        run: |
+          export PATH="$PWD/.toolchain/jdk/bin:$PATH"
+          APKSIGNER=.toolchain/sdk/build-tools/35.0.0/apksigner
+          for f in edge-light-phone.apk edge-light-watch.apk; do $APKSIGNER verify "$f"; done
+          # Phone and watch must share one signing key or they can't sync.
+          A=$($APKSIGNER verify --print-certs edge-light-phone.apk | grep "SHA-256 digest" | head -1)
+          B=$($APKSIGNER verify --print-certs edge-light-watch.apk | grep "SHA-256 digest" | head -1)
+          [ "$A" = "$B" ] || { echo "phone and watch are signed with different keys"; exit 1; }
+          sha256sum edge-light-phone.apk edge-light-watch.apk > SHA256SUMS
+          {
+            echo "Signing certificate ${A#*: }"
+            echo
+            echo "Install both APKs (phone, then watch). See the README for permissions."
+          } > release-notes.md
+
+      - name: Upload phone APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: edge-light-phone
+          path: edge-light-phone.apk
+
+      - name: Upload watch APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: edge-light-watch
+          path: edge-light-watch.apk
 
       - name: Publish release
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release create "$GITHUB_REF_NAME" --generate-notes edge-light-phone.apk edge-light-watch.apk SHA256SUMS
+        run: |
+          gh release create "$TAG" --target "$GITHUB_SHA" --title "Edge Light $VERSION" \
+            --notes-file release-notes.md --generate-notes \
+            edge-light-phone.apk edge-light-watch.apk SHA256SUMS

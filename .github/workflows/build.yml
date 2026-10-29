@@ -11,6 +11,8 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0   # the build number is the git commit count
 
       - name: Cache toolchain
         uses: actions/cache@v4
@@ -31,7 +33,14 @@ jobs:
           cp build/watch/edgelight.apk edge-light-watch-debug.apk
 
       # Debug-signed: fine for trying a build, but not a release key (see README, "Signing").
-      - uses: actions/upload-artifact@v4
+      - name: Upload phone APK
+        uses: actions/upload-artifact@v4
         with:
-          name: edge-light-debug-apks
-          path: edge-light-*-debug.apk
+          name: edge-light-phone-debug
+          path: edge-light-phone-debug.apk
+
+      - name: Upload watch APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: edge-light-watch-debug
+          path: edge-light-watch-debug.apk
