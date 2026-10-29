@@ -1,0 +1,4 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="acc_desc">Draws the edge light above the lock screen. Reads no screen content and collects nothing.</string>
+</resources>

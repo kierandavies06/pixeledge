@@ -1,0 +1,37 @@
+name: Build
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Cache toolchain
+        uses: actions/cache@v4
+        with:
+          path: |
+            .toolchain
+            libs
+          key: toolchain-${{ hashFiles('scripts/setup.sh') }}
+
+      - name: Set up toolchain
+        run: scripts/setup.sh
+
+      - name: Build phone and watch apps
+        run: |
+          ./build.sh app
+          ./build.sh watch
+          cp build/app/edgelight.apk edge-light-phone-debug.apk
+          cp build/watch/edgelight.apk edge-light-watch-debug.apk
+
+      # Debug-signed: fine for trying a build, but not a release key (see README, "Signing").
+      - uses: actions/upload-artifact@v4
+        with:
+          name: edge-light-debug-apks
+          path: edge-light-*-debug.apk

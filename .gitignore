@@ -1,0 +1,9 @@
+# fetched / generated
+.toolchain/
+libs/
+build/
+# never commit signing material
+*.keystore
+*.jks
+*.p12
+keystore.properties
