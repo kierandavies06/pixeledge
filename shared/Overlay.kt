@@ -123,31 +123,13 @@ class EdgeView(c: Context, private val fx: Effect, private val loop: Boolean, pr
         // Path runs along the physical screen edge; the stroke is twice the visible width so half of it shows.
         path.reset(); path.addRoundRect(RectF(0f, 0f, W, H), r, r, Path.Direction.CW)
         val cx = W / 2; val cy = H / 2
-        shader = when (style) {
-            "rainbow" -> SweepGradient(cx, cy, IntArray(8) { Color.HSVToColor(floatArrayOf(it * 360f / 7, 0.85f, 1f)) }, null)
-            "chase" -> {
-                val n = cols.size
-                val clear = cols[0] and 0xFFFFFF
-                val pos = FloatArray(n + 2); val cs = IntArray(n + 2)
-                cs[0] = clear; pos[0] = 0f
-                for (i in 0 until n) { cs[i + 1] = cols[i]; pos[i + 1] = if (n == 1) 0.5f else 0.2f + 0.3f * i / (n - 1) }
-                cs[n + 1] = clear; pos[n + 1] = 0.5001f
-                SweepGradient(cx, cy, cs, pos)
-            }
-            else -> if (cols.size > 1) SweepGradient(cx, cy, cols + cols[0], null) else null
-        }
+        shader = edgeShader(style, cols, cx, cy)
     }
 
     override fun onDraw(cv: Canvas) {
         if (!ready) setup()
         val rot = style == "sweep" || style == "chase" || style == "rainbow"
-        val a = when (style) {
-            "pulse" -> sq(sin(PI * 3 * t).toFloat())
-            "breathe" -> sq(sin(PI * t).toFloat())
-            "strobe" -> if ((t * 6).toInt() % 2 == 0) 1f else 0f
-            "solid" -> min(1f, min(t / 0.15f, (1 - t) / 0.25f))
-            else -> env
-        }.coerceIn(0f, 1f) * fade
+        val a = edgeAlpha(style, t, env) * fade
         val sh = shader
         if (sh != null && rot) { mat.setRotate(t * 360f, width / 2f, height / 2f); sh.setLocalMatrix(mat) }
         paint.shader = sh
@@ -167,4 +149,31 @@ class EdgeView(c: Context, private val fx: Effect, private val loop: Boolean, pr
     }
 
     private fun sq(x: Float) = x * x
+}
+
+/** Colour shader for a style, centred on (cx, cy). Shared by the screen-edge ring and the bubble border. */
+fun edgeShader(style: String, cols: IntArray, cx: Float, cy: Float): Shader? = when (style) {
+    "rainbow" -> SweepGradient(cx, cy, IntArray(8) { Color.HSVToColor(floatArrayOf(it * 360f / 7, 0.85f, 1f)) }, null)
+    "chase" -> {
+        val n = cols.size
+        val clear = cols[0] and 0xFFFFFF
+        val pos = FloatArray(n + 2); val cs = IntArray(n + 2)
+        cs[0] = clear; pos[0] = 0f
+        for (i in 0 until n) { cs[i + 1] = cols[i]; pos[i + 1] = if (n == 1) 0.5f else 0.2f + 0.3f * i / (n - 1) }
+        cs[n + 1] = clear; pos[n + 1] = 0.5001f
+        SweepGradient(cx, cy, cs, pos)
+    }
+    else -> if (cols.size > 1) SweepGradient(cx, cy, cols + cols[0], null) else null
+}
+
+/** Brightness 0..1 for a style at position t within its cycle, with fade-in envelope env. */
+fun edgeAlpha(style: String, t: Float, env: Float): Float {
+    fun sq(x: Float) = x * x
+    return when (style) {
+        "pulse" -> sq(sin(PI * 3 * t).toFloat())
+        "breathe" -> sq(sin(PI * t).toFloat())
+        "strobe" -> if ((t * 6).toInt() % 2 == 0) 1f else 0f
+        "solid" -> min(1f, min(t / 0.15f, (1 - t) / 0.25f))
+        else -> env
+    }.coerceIn(0f, 1f)
 }

@@ -7,6 +7,10 @@ import android.net.Uri
 import android.os.Bundle
 import android.provider.Settings
 import android.view.Gravity
+import android.view.HapticFeedbackConstants
+import android.view.MotionEvent
+import android.view.View
+import android.view.ViewTreeObserver
 import android.widget.*
 
 class MainActivity : Activity() {
@@ -57,11 +61,89 @@ class MainActivity : Activity() {
         if (r.dnd != 0) s += if (r.dnd == 1) "DND" else "no DND"
         val cond = if (s.isEmpty()) "Any notification" else s.joinToString(" · ")
         val act = if (r.suppress) "no light" else (r.fx.style ?: "default effect")
-        return "$cond  →  $act" + if (r.stop) " (stop)" else ""
+        val pop = when (r.bubble) { 1 -> " · bubble"; 2 -> " · bubble, replaces native"; 3 -> " · no bubble"; else -> "" }
+        return "$cond  →  $act$pop" + if (r.stop) " (stop)" else ""
     }
 
     override fun onRequestPermissionsResult(code: Int, perms: Array<out String>, res: IntArray) {
         Ring.register(this); render()
+    }
+
+    /** Press-and-hold a rule card, then drag it; the other cards slide aside and the order is saved on release. */
+    private fun dragToReorder(card: View, r: Rule, cfg: Config) {
+        var on = false
+        var downRaw = 0f; var scroll0 = 0; var fromIdx = 0; var toIdx = 0; var lastRaw = 0f
+        var slot = 0f
+        val box = card.parent as LinearLayout
+        fun sv(): ScrollView? { var p = card.parent; while (p != null && p !is ScrollView) p = p.parent; return p as? ScrollView }
+        fun dy() = lastRaw - downRaw + ((sv()?.scrollY ?: 0) - scroll0)
+        val tick = object : Runnable {
+            override fun run() {
+                if (!on) return
+                val s = sv() ?: return
+                val loc = IntArray(2); s.getLocationOnScreen(loc)
+                val y = lastRaw - loc[1]; val edge = 110 * resources.displayMetrics.density
+                val step = when { y < edge -> -((edge - y) / edge * 28).toInt(); y > s.height - edge -> ((y - (s.height - edge)) / edge * 28).toInt(); else -> 0 }
+                if (step != 0) { s.scrollBy(0, step); move() }
+                card.postOnAnimation(this)
+            }
+            fun move() {
+                card.translationY = dy()
+                val center = card.top + card.height / 2f + dy()
+                var t = 0
+                for (j in 0 until box.childCount) { val o = box.getChildAt(j); if (o !== card && o.top + o.height / 2f < center) t++ }
+                toIdx = t
+                for (j in 0 until box.childCount) {
+                    val o = box.getChildAt(j); if (o === card) continue
+                    val want = when { j > fromIdx && j <= toIdx -> -slot; j < fromIdx && j >= toIdx -> slot; else -> 0f }
+                    if (o.translationY != want) o.animate().translationY(want).setDuration(150).start()
+                }
+            }
+        }
+        // Re-derive move() through the runnable so scrolling and finger motion share one code path.
+        fun move() = tick.move()
+        card.setOnLongClickListener {
+            val s = sv() ?: return@setOnLongClickListener false
+            on = true; fromIdx = box.indexOfChild(card); toIdx = fromIdx
+            scroll0 = s.scrollY; downRaw = lastRaw
+            slot = card.height + (card.layoutParams as LinearLayout.LayoutParams).topMargin.toFloat()
+            card.parent.requestDisallowInterceptTouchEvent(true)
+            card.elevation = 12 * resources.displayMetrics.density; card.animate().scaleX(1.02f).scaleY(1.02f).setDuration(120).start()
+            card.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS)
+            card.postOnAnimation(tick)
+            true
+        }
+        card.setOnTouchListener { _, e ->
+            lastRaw = e.rawY
+            if (e.actionMasked == MotionEvent.ACTION_DOWN) downRaw = e.rawY
+            if (!on) return@setOnTouchListener false
+            when (e.actionMasked) {
+                MotionEvent.ACTION_MOVE -> move()
+                MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                    on = false
+                    val visual = card.top + card.translationY
+                    if (e.actionMasked == MotionEvent.ACTION_UP && toIdx != fromIdx) {
+                        cfg.rules.add(toIdx, cfg.rules.removeAt(fromIdx))
+                        Store.save(this, cfg)
+                        box.removeView(card); box.addView(card, toIdx)
+                    }
+                    for (j in 0 until box.childCount) box.getChildAt(j).let { if (it !== card) { it.animate().cancel(); it.translationY = 0f } }
+                    card.animate().scaleX(1f).scaleY(1f).setDuration(150).start()
+                    card.elevation = 0f
+                    // Slide the dropped card from where the finger left it into its slot.
+                    card.viewTreeObserver.addOnPreDrawListener(object : ViewTreeObserver.OnPreDrawListener {
+                        override fun onPreDraw(): Boolean {
+                            card.viewTreeObserver.removeOnPreDrawListener(this)
+                            card.translationY = visual - card.top
+                            card.animate().translationY(0f).setDuration(180).start()
+                            return true
+                        }
+                    })
+                    card.parent.requestDisallowInterceptTouchEvent(false)
+                }
+            }
+            true
+        }
     }
 
     private fun render() {
@@ -79,10 +161,11 @@ class MainActivity : Activity() {
         }
         pill("Lock screen", Overlay.acc != null) { startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)) }
         pill("Calls", Ring.hasPermission(this)) { requestPermissions(arrayOf(android.Manifest.permission.READ_PHONE_STATE), 1) }
+        pill("Replace", Quiet.hasPermission(this)) { requestPermissions(arrayOf(android.Manifest.permission.POST_NOTIFICATIONS), 2) }
         f.add(HorizontalScrollView(this).apply { isHorizontalScrollBarEnabled = false; addView(row) }, 12)
 
         lateinit var en: Switch; lateinit var ong: Switch; lateinit var sum: Switch; lateinit var dnd: Switch; lateinit var wake: Switch; lateinit var mirror: Switch
-        lateinit var gap: Slider
+        lateinit var gap: Slider; lateinit var bubbleDur: Slider
         f.card(16) { en = f.switchRow("Enabled", "Light the screen edges for notifications", cfg.enabled) }
 
         f.section("Behaviour")
@@ -98,6 +181,8 @@ class MainActivity : Activity() {
                 Ring.begin(this, c, fx, "test")
                 window.decorView.postDelayed({ Ring.end(this, "test") }, 6000)
             }
+            bubbleDur = f.slider("Bubble duration", 2000f, 10000f, 500f, cfg.bubbleMs.toFloat(), false, " ms")
+            f.button("Preview bubble", 1) { save(); val c = Store.load(this); Bubble.preview(this, c.base, c.bubbleMs) }
             mirror = f.switchRow("Mirror to watch", "Play the same light on your watch", cfg.watch)
             gap = f.slider("Minimum gap", 0f, 5000f, 100f, cfg.cooldownMs.toFloat(), false, " ms")
         }
@@ -107,9 +192,10 @@ class MainActivity : Activity() {
         f.card { fx = EffectForm(f, cfg.base, false) { Effect.base() } }
 
         f.section("Rules")
-        f.note("Applied top to bottom. Each matching rule overrides only the settings it sets.")
-        cfg.rules.forEachIndexed { i, r ->
-            f.card(click = { save(); startActivity(Intent(this, RuleActivity::class.java).putExtra("i", i)) }) {
+        f.note("Applied top to bottom. Each matching rule overrides only the settings it sets. Press and hold a rule, then drag to reorder.")
+        f.group {
+          cfg.rules.toList().forEach { r ->
+            val card = f.card(click = { save(); startActivity(Intent(this, RuleActivity::class.java).putExtra("i", cfg.rules.indexOf(r))) }) {
                 val top = LinearLayout(this).apply { gravity = Gravity.CENTER_VERTICAL }
                 val col = LinearLayout(this).apply {
                     orientation = LinearLayout.VERTICAL
@@ -124,14 +210,11 @@ class MainActivity : Activity() {
                     setPadding(f.dp(14), f.dp(4), f.dp(4), f.dp(4))
                     setOnClickListener { a ->
                         PopupMenu(this@MainActivity, a).apply {
-                            menu.add("Move up").isEnabled = i > 0
-                            menu.add("Move down").isEnabled = i < cfg.rules.size - 1
                             menu.add("Duplicate"); menu.add("Delete")
                             setOnMenuItemClickListener {
                                 save()
+                                val i = cfg.rules.indexOf(r)
                                 when (it.title) {
-                                    "Move up" -> cfg.rules.add(i - 1, cfg.rules.removeAt(i))
-                                    "Move down" -> cfg.rules.add(i + 1, cfg.rules.removeAt(i))
                                     "Duplicate" -> cfg.rules.add(i + 1, Rule.from(r.toJson()).also { d -> d.name = r.name + " copy" })
                                     else -> cfg.rules.removeAt(i)
                                 }
@@ -143,6 +226,8 @@ class MainActivity : Activity() {
                 top.addView(col, LinearLayout.LayoutParams(0, -2, 1f)); top.addView(sw); top.addView(more)
                 f.add(top)
             }
+            dragToReorder(card, r, cfg)
+          }
         }
         f.button("Add rule", 2) { save(); startActivity(Intent(this, RuleActivity::class.java).putExtra("i", -1)) }
 
@@ -159,10 +244,14 @@ class MainActivity : Activity() {
 
         save = {
             cfg.enabled = en.isChecked; cfg.ignoreOngoing = ong.isChecked; cfg.ignoreSummary = sum.isChecked
-            cfg.respectDnd = dnd.isChecked; cfg.wake = wake.isChecked; cfg.watch = mirror.isChecked; cfg.cooldownMs = gap.value()?.toInt() ?: 0
+            cfg.respectDnd = dnd.isChecked; cfg.wake = wake.isChecked; cfg.watch = mirror.isChecked; cfg.cooldownMs = gap.value()?.toInt() ?: 0; cfg.bubbleMs = bubbleDur.value()?.toInt() ?: 4000
             cfg.base = Effect.base().over(fx.read())
             Store.save(this, cfg)
         }
-        setContentView(f.scroll())
+        val keep = (findViewById<android.view.ViewGroup>(android.R.id.content)?.getChildAt(0) as? ScrollView)?.scrollY ?: 0
+        val sv = f.scroll()
+        setContentView(sv)
+        // render() rebuilds everything, so put the scroll position back (e.g. after moving a rule).
+        if (keep > 0) sv.post { sv.scrollTo(0, keep) }
     }
 }

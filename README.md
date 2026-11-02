@@ -18,6 +18,7 @@ Made by [Kieran Davies](https://github.com/kierandavies06/).
   - whether the phone is charging, the screen is on, or Do Not Disturb is active
   - Rules apply top to bottom and *merge*: each matching rule overrides only the fields it sets. A rule can also suppress the light or stop evaluation.
 - **Incoming calls** *(experimental)*: the light loops for as long as the phone is ringing, driven by the real call state, and stops when you answer, decline or miss it. VoIP calls with a full-screen incoming-call notification are handled too.
+- **Notification bubbles**: a rule can show a notification as a slim, single-line pill just below the camera cut-out, sized to its content. It shows the app's own notification icon in white inside a circle in the effect's colour, and the lighting effect runs around its border and around the screen edge. Tap to open, swipe up to dismiss. A rule can also *replace* the app's own popup (see below).
 - **Over the lock screen** (via an accessibility overlay) and optional **wake screen** for idle displays.
 - **Pixel Watch companion**: settings and rules sync from the phone and the same lights play on the watch, including waking it from ambient mode. Crown scrolling supported.
 - **Private**: the apps request no internet permission and contain no analytics or tracking. Phone-to-watch sync goes through Google's Data Layer, which handles the transport; this project never touches the network itself.
@@ -79,6 +80,21 @@ Open **Rules → Add rule**. A rule has *conditions* (all must match) and an *ac
 
 The action can override any of style, colours, width, duration, repeats and glow (leave a control on "inherit" to keep the default), suppress the light entirely, and/or stop evaluating later rules.
 
+### Popup style: bubbles
+
+Each rule has a **Popup style** (the rules engine decides per notification, so you can bubble only Snapchat messages that mention a name, for example):
+
+| Style | What happens |
+| --- | --- |
+| Inherit | No change from earlier rules (default: the usual screen-edge ring) |
+| Bubble | Show the pill with the effect on its border, alongside the usual screen-edge ring. The app's own popup still appears too. |
+| Bubble + replace native | As above, and the original notification is removed so the app's own popup goes away. A quiet copy (with its reply and other actions) is left in your shade. |
+| Off | Cancel a bubble set by an earlier rule |
+
+Android gives apps no way to hide another app's popup while keeping the notification, so "replace" works by cancelling the original and posting a quiet copy. That means: the stock popup may flash for a moment before it is removed; the copy loses rich formatting such as chat threading; and the watch receives the copy rather than the original. It needs the **Replace** permission (notifications) granted in the status pills. Notifications that don't match the rule are untouched. On a locked screen a bubble hides private content, following your system lock-screen setting.
+
+The Behaviour section has a **Bubble duration** slider and a **Preview bubble** button, and the rule editor can preview a rule's effect as a bubble.
+
 ### Import rules from a file
 
 Rules are stored as JSON in the app's private storage. To load rules without using the UI, push a file where the app will find it, then open the app. It merges rules by name (replacing a rule with the same name) and deletes the file.
@@ -101,7 +117,7 @@ adb push import.json /sdcard/Android/data/uk.me.kierandavies.pixeledge/files/imp
 }
 ```
 
-Keys: `name`, `on`, `pkgs`, `notPkgs`, `anyRe`, `channels`, `cats`, `titleRe`, `textRe`, `minImp` (0, 2, 3, 4), `from` / `to` (minutes since midnight), `days` (bitmask, bit 0 = Sunday), `charging` / `screen` / `dnd` (0 any, 1 yes, 2 no), `suppress`, `stop`, and `fx` with `style`, `colors` (signed ARGB ints), `width` (dp), `duration` (ms), `repeats`, `glow`.
+Keys: `name`, `on`, `bubble` (0 inherit, 1 bubble, 2 bubble + replace native, 3 off), `pkgs`, `notPkgs`, `anyRe`, `channels`, `cats`, `titleRe`, `textRe`, `minImp` (0, 2, 3, 4), `from` / `to` (minutes since midnight), `days` (bitmask, bit 0 = Sunday), `charging` / `screen` / `dnd` (0 any, 1 yes, 2 no), `suppress`, `stop`, and `fx` with `style`, `colors` (signed ARGB ints), `width` (dp), `duration` (ms), `repeats`, `glow`.
 
 ## Build from source
 

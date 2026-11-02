@@ -13,6 +13,9 @@ class Ctx(
     val minuteOfDay: Int, val dow: Int, val all: String,
 )
 
+/** What to show for a notification: the resolved effect and the popup style (0 none, 1 bubble, 2 bubble + replace native). */
+class Outcome(val fx: Effect, val bubble: Int)
+
 object Engine {
     /** Context for events that aren't notifications (e.g. the phone ringing). */
     fun ctxFor(c: Context, pkg: String, channel: String, category: String, title: String, text: String, importance: Int, all: String): Ctx {
@@ -27,17 +30,21 @@ object Engine {
     }
 
     /** Base effect, then every matching rule's overrides applied in list order. Null = show nothing. */
-    fun resolve(cfg: Config, c: Ctx): Effect? {
+    fun decide(cfg: Config, c: Ctx): Outcome? {
         if (!cfg.enabled) return null
         var fx = cfg.base
+        var bubble = 0
         for (r in cfg.rules) {
             if (!r.on || !matches(r, c)) continue
             if (r.suppress) return null
             fx = fx.over(r.fx)
+            when (r.bubble) { 1, 2 -> bubble = r.bubble; 3 -> bubble = 0 }
             if (r.stop) break
         }
-        return fx
+        return Outcome(fx, bubble)
     }
+
+    fun resolve(cfg: Config, c: Ctx): Effect? = decide(cfg, c)?.fx
 
     private fun tri(want: Int, have: Boolean) = want == 0 || (want == 1) == have
 

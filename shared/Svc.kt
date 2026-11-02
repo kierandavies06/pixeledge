@@ -64,11 +64,22 @@ class Svc : NotificationListenerService() {
             getSystemService(PowerManager::class.java).isInteractive, dnd,
             cal.get(Calendar.HOUR_OF_DAY) * 60 + cal.get(Calendar.MINUTE), cal.get(Calendar.DAY_OF_WEEK) - 1, all,
         )
-        val fx = Engine.resolve(cfg, ctx) ?: return skip(sbn, "rule suppressed")
+        val out = Engine.decide(cfg, ctx) ?: return skip(sbn, "rule suppressed")
+        val fx = out.fx
         Log.d("EdgeLight", "fire ${sbn.packageName} style=${fx.style}")
         last = now
         if (incomingCall) { Ring.begin(this, cfg, fx, sbn.key); return }
-        Light.fire(this, cfg, fx)
+        val bubble = Light.bubble
+        if (out.bubble != 0 && bubble != null) {
+            Log.d("EdgeLight", "bubble ${sbn.packageName} replace=${out.bubble == 2}")
+            Light.fire(this, cfg, fx)                       // the screen-edge ring runs too...
+            Light.wake(this, cfg, cfg.bubbleMs + 2500L)     // ...and an idle screen stays on for the whole bubble
+            bubble(this, sbn, fx, cfg.bubbleMs)
+            if (out.bubble == 2 && n.flags and Notification.FLAG_ONGOING_EVENT == 0) {
+                Light.replaceNative?.invoke(this, sbn)   // keep a quiet copy in the shade...
+                cancelNotification(sbn.key)              // ...and remove the original so its popup goes away
+            }
+        } else Light.fire(this, cfg, fx)
         if (cfg.watch) Light.mirror?.invoke(this, fx)
     }
 

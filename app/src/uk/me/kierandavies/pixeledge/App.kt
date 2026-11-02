@@ -10,6 +10,8 @@ class App : Application() {
         super.onCreate()
         Store.hook = { c, cfg -> Sync.push(c, cfg) }
         Light.mirror = { c, fx -> Sync.fire(c, fx) }
+        Light.bubble = { c, sbn, fx, ms -> Bubble.fromNotification(c, sbn, fx, ms) }
+        Light.replaceNative = { c, sbn -> Quiet.post(c, sbn) }
         Light.mirrorRing = { c, fx -> Sync.send(c, "/ring", fx.toJson().toString().toByteArray()) }
         Light.mirrorRingStop = { c -> Sync.send(c, "/ring_stop", ByteArray(0)) }
     }

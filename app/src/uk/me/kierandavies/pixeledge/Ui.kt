@@ -108,6 +108,14 @@ class Form(val c: Context) {
     fun note(t: String) = add(tv(t, 14f, p.dim).apply { setPadding(dp(12), 0, dp(12), 0) }, 4)
     fun label(t: String) = add(tv(t, 12f, p.dim, true), 14)
 
+    /** A plain vertical container; cards added in [body] go inside it. */
+    fun group(body: () -> Unit): LinearLayout {
+        val g = LinearLayout(c).apply { orientation = LinearLayout.VERTICAL }
+        add(g)
+        val prev = cur; cur = g; body(); cur = prev
+        return g
+    }
+
     fun card(top: Int = 8, click: (() -> Unit)? = null, body: () -> Unit): LinearLayout {
         val l = LinearLayout(c).apply {
             orientation = LinearLayout.VERTICAL

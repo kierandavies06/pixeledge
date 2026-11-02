@@ -83,15 +83,21 @@ class RuleActivity : Activity() {
         }
 
         f.section("Then")
-        lateinit var sup: Switch; lateinit var stop: Switch
+        lateinit var sup: Switch; lateinit var stop: Switch; lateinit var bub: Chips
         f.card {
             sup = f.switchRow("Suppress", "Show no light at all", r.suppress)
             stop = f.switchRow("Stop here", "Don't evaluate later rules", r.stop)
+            f.label("Popup style")
+            bub = f.chips(listOf("Inherit", "Bubble", "Bubble + replace native", "Off"), r.bubble)
+            f.note("Bubble: a pill drops from the camera with the effect around its border. Replace native also removes the app's own popup and leaves a quiet copy in your shade.")
         }
         f.section("Override effect")
         f.note("Anything left on “inherit” follows the default effect.")
         lateinit var fx: EffectForm
-        f.card { fx = EffectForm(f, r.fx, true) { cfg.base } }
+        f.card {
+            fx = EffectForm(f, r.fx, true) { cfg.base }
+            f.button("Preview as bubble", 1) { Bubble.preview(this, cfg.base.over(fx.read()), cfg.bubbleMs) }
+        }
 
         f.button("Save", 2) {
             val n = Rule()
@@ -100,7 +106,7 @@ class RuleActivity : Activity() {
             n.titleRe = title.text.toString(); n.textRe = body.text.toString(); n.minImp = imps[imp.sel]
             n.from = from; n.to = to; n.days = days
             n.charging = chg.sel; n.screen = scr.sel; n.dnd = dnd.sel
-            n.suppress = sup.isChecked; n.stop = stop.isChecked; n.fx = fx.read()
+            n.suppress = sup.isChecked; n.stop = stop.isChecked; n.bubble = bub.sel; n.fx = fx.read()
             if (idx >= 0) cfg.rules[idx] = n else cfg.rules.add(n)
             Store.save(this, cfg)
             finish()

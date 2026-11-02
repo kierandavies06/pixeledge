@@ -80,6 +80,7 @@ class Rule {
     var days = 127                       // bit0 = Sunday
     var charging = 0; var screen = 0; var dnd = 0   // 0 any, 1 yes, 2 no
     var suppress = false                 // matching notifications show nothing
+    var bubble = 0                       // 0 inherit, 1 bubble, 2 bubble + replace native popup, 3 no bubble
     var stop = false                     // don't evaluate later rules
     var fx = Effect()
 
@@ -89,7 +90,7 @@ class Rule {
         it.put("titleRe", titleRe); it.put("textRe", textRe); it.put("minImp", minImp)
         it.put("from", from); it.put("to", to); it.put("days", days)
         it.put("charging", charging); it.put("screen", screen); it.put("dnd", dnd)
-        it.put("suppress", suppress); it.put("stop", stop); it.put("fx", fx.toJson())
+        it.put("suppress", suppress); it.put("bubble", bubble); it.put("stop", stop); it.put("fx", fx.toJson())
     }
 
     companion object {
@@ -100,7 +101,7 @@ class Rule {
             it.titleRe = j.optString("titleRe"); it.textRe = j.optString("textRe"); it.minImp = j.optInt("minImp")
             it.from = j.optInt("from", -1); it.to = j.optInt("to", -1); it.days = j.optInt("days", 127)
             it.charging = j.optInt("charging"); it.screen = j.optInt("screen"); it.dnd = j.optInt("dnd")
-            it.suppress = j.optBoolean("suppress"); it.stop = j.optBoolean("stop")
+            it.suppress = j.optBoolean("suppress"); it.bubble = j.optInt("bubble"); it.stop = j.optBoolean("stop")
             it.fx = Effect.from(j.optJSONObject("fx"))
         }
     }
@@ -114,12 +115,13 @@ class Config {
     var wake = false
     var watch = true                     // phone only: forward fired effects to the watch
     var cooldownMs = 0
+    var bubbleMs = 4000                  // how long a bubble stays on screen
     var base = Effect.base()
     val rules = mutableListOf<Rule>()
 
     fun toJson() = JSONObject().also {
         it.put("enabled", enabled); it.put("ignoreOngoing", ignoreOngoing); it.put("ignoreSummary", ignoreSummary)
-        it.put("respectDnd", respectDnd); it.put("wake", wake); it.put("watch", watch); it.put("cooldown", cooldownMs); it.put("base", base.toJson())
+        it.put("respectDnd", respectDnd); it.put("wake", wake); it.put("watch", watch); it.put("cooldown", cooldownMs); it.put("bubbleMs", bubbleMs); it.put("base", base.toJson())
         it.put("rules", JSONArray().also { a -> rules.forEach { r -> a.put(r.toJson()) } })
     }
 
@@ -127,7 +129,7 @@ class Config {
         fun from(j: JSONObject) = Config().also { c ->
             c.enabled = j.optBoolean("enabled", true); c.ignoreOngoing = j.optBoolean("ignoreOngoing", true)
             c.ignoreSummary = j.optBoolean("ignoreSummary", true); c.respectDnd = j.optBoolean("respectDnd"); c.wake = j.optBoolean("wake"); c.watch = j.optBoolean("watch", true)
-            c.cooldownMs = j.optInt("cooldown"); c.base = Effect.base().over(Effect.from(j.optJSONObject("base")))
+            c.cooldownMs = j.optInt("cooldown"); c.bubbleMs = j.optInt("bubbleMs", 4000); c.base = Effect.base().over(Effect.from(j.optJSONObject("base")))
             j.optJSONArray("rules")?.let { a -> for (i in 0 until a.length()) c.rules.add(Rule.from(a.getJSONObject(i))) }
         }
 
