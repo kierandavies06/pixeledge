@@ -229,7 +229,8 @@ class MainActivity : Activity() {
             dragToReorder(card, r, cfg)
           }
         }
-        f.button("Add rule", 2) { save(); startActivity(Intent(this, RuleActivity::class.java).putExtra("i", -1)) }
+        f.button("Add rule", 2) { save(); startActivity(Intent(this, WizardActivity::class.java)) }
+        f.button("Add rule manually", 0) { save(); startActivity(Intent(this, RuleActivity::class.java).putExtra("i", -1)) }
 
         f.section("About")
         f.card {

@@ -25,6 +25,7 @@
             </intent-filter>
         </activity>
         <activity android:name=".RuleActivity" android:exported="false" />
+        <activity android:name=".WizardActivity" android:exported="false" />
         <service
             android:name=".Svc"
             android:label="Edge Light"

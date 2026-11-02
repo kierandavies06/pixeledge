@@ -337,3 +337,18 @@ class EffectForm(f: Form, e: Effect, private val inherit: Boolean, base: () -> E
         e.repeats = reps.value()?.toInt(); e.glow = glow.value()
     }
 }
+
+/** Multi-choice dialog over the launchable apps; [done] gets the chosen package names. */
+fun pickApps(a: android.app.Activity, current: List<String>, done: (List<String>) -> Unit) {
+    val pm = a.packageManager
+    val apps = pm.queryIntentActivities(android.content.Intent(android.content.Intent.ACTION_MAIN).addCategory(android.content.Intent.CATEGORY_LAUNCHER), 0)
+        .map { it.activityInfo.packageName to it.loadLabel(pm).toString() }
+        .distinctBy { it.first }.sortedBy { it.second.lowercase() }
+    val cur = current.toMutableSet()
+    android.app.AlertDialog.Builder(a).setTitle("Apps")
+        .setMultiChoiceItems(apps.map { it.second }.toTypedArray(), BooleanArray(apps.size) { apps[it].first in cur }) { _, i, on ->
+            if (on) cur.add(apps[i].first) else cur.remove(apps[i].first)
+        }
+        .setPositiveButton("OK") { _, _ -> done(cur.toList()) }
+        .show()
+}

@@ -115,17 +115,5 @@ class RuleActivity : Activity() {
         setContentView(f.scroll())
     }
 
-    private fun pickApps(field: EditText) {
-        val pm = packageManager
-        val apps = pm.queryIntentActivities(Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER), 0)
-            .map { it.activityInfo.packageName to it.loadLabel(pm).toString() }
-            .distinctBy { it.first }.sortedBy { it.second.lowercase() }
-        val cur = csv(field.text.toString()).toMutableSet()
-        AlertDialog.Builder(this).setTitle("Apps")
-            .setMultiChoiceItems(apps.map { it.second }.toTypedArray(), BooleanArray(apps.size) { apps[it].first in cur }) { _, i, on ->
-                if (on) cur.add(apps[i].first) else cur.remove(apps[i].first)
-            }
-            .setPositiveButton("OK") { _, _ -> field.setText(cur.joinToString(", ")) }
-            .show()
-    }
+    private fun pickApps(field: EditText) = pickApps(this, csv(field.text.toString())) { field.setText(it.joinToString(", ")) }
 }
