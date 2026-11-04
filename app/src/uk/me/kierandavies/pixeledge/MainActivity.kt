@@ -40,6 +40,11 @@ class MainActivity : Activity() {
             }
         }
         setContentView(shell)
+        // First launch: walk new installs through setup. Existing installs that already work are marked done.
+        if (!OnboardingActivity.done(this)) {
+            if (listenerOn() && Settings.canDrawOverlays(this)) OnboardingActivity.markDone(this)
+            else startActivity(Intent(this, OnboardingActivity::class.java))
+        }
     }
 
     override fun onResume() { super.onResume(); importPending(); render(); Sync.push(this, Store.load(this)) }
@@ -369,6 +374,7 @@ class MainActivity : Activity() {
             f.add(f.tv("Version ${BuildInfo.VERSION} (build ${BuildInfo.CODE}) · open source", 13f, f.p.dim))
             f.add(f.tv("Commit ${BuildInfo.COMMIT} · built ${BuildInfo.TIME}", 13f, f.p.dim))
             f.add(f.tv("Made by Kieran Davies", 15f), 12)
+            f.button("Run setup again", 1) { startActivity(Intent(this, OnboardingActivity::class.java)) }
             f.button("github.com/kierandavies06", 1) { try { startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(GITHUB))) } catch (e: Exception) {} }
         }
         save = {

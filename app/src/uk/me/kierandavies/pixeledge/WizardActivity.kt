@@ -12,21 +12,6 @@ import android.widget.*
 
 /** Step-by-step rule creation: what to light up for, when, how it looks, and what popup to show. */
 class WizardActivity : Activity() {
-    private class Look(val name: String, val blurb: String, val fx: Effect)
-
-    private val looks = listOf(
-        Look("Urgent", "Fast red strobe", fx("strobe", listOf(0xFFFF1744.toInt(), 0xFFFF9100.toInt()), 5f, 1200, 3, 0.8f)),
-        Look("Calm", "Slow blue breathing", fx("breathe", listOf(0xFF40C4FF.toInt(), 0xFF7C4DFF.toInt()), 4f, 2400, 2, 1f)),
-        Look("Friendly", "Green pulse", fx("pulse", listOf(0xFF00E676.toInt()), 4f, 1800, 2, 1f)),
-        Look("Party", "Rainbow ring", fx("rainbow", listOf(), 4f, 2200, 2, 1f)),
-        Look("Warm", "Sunset sweep", fx("sweep", listOf(0xFFFF6D00.toInt(), 0xFFFF4081.toInt(), 0xFFFFD740.toInt()), 4f, 1600, 2, 1f)),
-        Look("Default", "Use your default effect", Effect()),
-    )
-
-    private fun fx(style: String, cols: List<Int>, w: Float, ms: Int, reps: Int, glow: Float) = Effect().also {
-        it.style = style; it.colors = cols.takeIf { c -> c.isNotEmpty() }; it.widthDp = w; it.durationMs = ms; it.repeats = reps; it.glow = glow
-    }
-
     private lateinit var cfg: Config
     private var step = 0
     private var kind = -1                 // 0 app, 1 words, 2 calls, 3 important
@@ -87,7 +72,7 @@ class WizardActivity : Activity() {
                     Triple(1, "A name or word", "Notifications that mention something, from any app"),
                     Triple(2, "Calls", "Incoming-call notifications"),
                     Triple(3, "Important notifications", "Anything the app marks as high priority"),
-                ).forEach { (k, t, s) -> choice(f, t, s, kind == k) { kind = k; step = 1; show() } }
+                ).forEach { (k, t, s) -> f.choice(t, s, kind == k) { kind = k; step = 1; show() } }
             }
             1 -> when (kind) {
                 0 -> {
@@ -125,7 +110,7 @@ class WizardActivity : Activity() {
                 val names = listOf("Any time", "At night", "Work hours", "Custom")
                 val subs = listOf("", "22:00 to 07:00", "09:00 to 17:00, Monday to Friday", "Pick your own times")
                 names.forEachIndexed { i, n ->
-                    choice(f, n, subs[i], timeKind == i) {
+                    f.choice(n, subs[i], timeKind == i) {
                         timeKind = i
                         when (i) { 1 -> { from = 22 * 60; to = 7 * 60 }; 2 -> { from = 9 * 60; to = 17 * 60 }; 3 -> if (from < 0) { from = 9 * 60; to = 17 * 60 } }
                         show()
@@ -142,8 +127,8 @@ class WizardActivity : Activity() {
             }
             3 -> {
                 f.section("How should it look?")
-                looks.forEachIndexed { i, l -> lookCard(f, l, look == i) { look = i; show() } }
-                f.button("Preview", 1) { preview(looks[look]) }
+                Looks.all.forEachIndexed { i, l -> f.lookCard(l, look == i, cfg.base.colors) { look = i; show() } }
+                f.button("Preview", 1) { preview(Looks.all[look]) }
             }
             4 -> {
                 f.section("Show a popup?")
@@ -152,14 +137,14 @@ class WizardActivity : Activity() {
                     Triple("Light and bubble", "A pill drops from the camera with the effect around it. The app's own popup still shows.", 1),
                     Triple("Bubble replaces the app's popup", "Removes the app's own popup and leaves a quiet copy in your shade. Needs the Replace permission.", 2),
                 )
-                opts.forEach { (t, s, v) -> choice(f, t, s, popup == v) { popup = v; show() } }
+                opts.forEach { (t, s, v) -> f.choice(t, s, popup == v) { popup = v; show() } }
             }
             else -> {
                 f.section("Name it")
                 f.card { nameField = f.field("Name", name.ifBlank { suggestName() }) }
                 f.section("Summary")
                 f.card { f.add(f.tv(summary(), 15f)) }
-                f.button("Preview", 1) { preview(looks[look]) }
+                f.button("Preview", 1) { preview(Looks.all[look]) }
                 f.button("Fine-tune in the full editor after saving", 0) { save(nameField.text.toString(), true) }
             }
         }
@@ -177,34 +162,6 @@ class WizardActivity : Activity() {
         setContentView(f.scroll())
     }
 
-    private fun choice(f: Form, title: String, sub: String, on: Boolean, click: () -> Unit) {
-        f.card(click = click) {
-            val row = LinearLayout(this).apply { gravity = Gravity.CENTER_VERTICAL }
-            val col = LinearLayout(this).apply {
-                orientation = LinearLayout.VERTICAL
-                addView(f.tv(title, 16f, bold = true)); if (sub.isNotEmpty()) addView(f.tv(sub, 13f, f.p.dim))
-            }
-            row.addView(col, LinearLayout.LayoutParams(0, -2, 1f))
-            if (on) row.addView(f.tv("✓", 20f, f.p.primary, true))
-            f.add(row)
-        }
-    }
-
-    private fun lookCard(f: Form, l: Look, on: Boolean, click: () -> Unit) {
-        f.card(click = click) {
-            val row = LinearLayout(this).apply { gravity = Gravity.CENTER_VERTICAL }
-            val cols = (l.fx.colors ?: cfg.base.colors ?: listOf(Color.WHITE)).let { if (l.fx.style == "rainbow") listOf(Color.RED, Color.YELLOW, Color.GREEN, Color.CYAN, Color.MAGENTA) else it }
-            val sw = android.view.View(this).apply {
-                background = GradientDrawable(GradientDrawable.Orientation.LEFT_RIGHT, (if (cols.size > 1) cols else cols + cols).toIntArray()).apply { cornerRadius = f.dp(12).toFloat() }
-            }
-            row.addView(sw, LinearLayout.LayoutParams(f.dp(56), f.dp(36)).also { it.rightMargin = f.dp(16) })
-            val col = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; addView(f.tv(l.name, 16f, bold = true)); addView(f.tv(l.blurb, 13f, f.p.dim)) }
-            row.addView(col, LinearLayout.LayoutParams(0, -2, 1f))
-            if (on) row.addView(f.tv("✓", 20f, f.p.primary, true))
-            f.add(row)
-        }
-    }
-
     private fun preview(l: Look) {
         val fx = cfg.base.over(l.fx)
         Preview.light(this, fx)
@@ -220,7 +177,7 @@ class WizardActivity : Activity() {
         }
         val whenTxt = when (timeKind) { 0 -> "at any time"; 1 -> "at night (22:00–07:00)"; 2 -> "during work hours (09:00–17:00, Mon–Fri)"; else -> "from ${hm(from)} to ${hm(to)}" }
         val pop = when (popup) { 0 -> "just the light"; 1 -> "the light and a bubble"; else -> "the light and a bubble replacing the app's popup" }
-        return "$what, $whenTxt: ${looks[look].name.lowercase()} look, $pop."
+        return "$what, $whenTxt: ${Looks.all[look].name.lowercase()} look, $pop."
     }
 
     private fun save(n: String, advanced: Boolean) {
@@ -235,7 +192,7 @@ class WizardActivity : Activity() {
         if (timeKind != 0) { r.from = from; r.to = to }
         if (timeKind == 2) r.days = 0b0111110   // Monday to Friday; bit 0 is Sunday
         r.bubble = popup
-        r.fx = looks[look].fx
+        r.fx = Looks.all[look].fx
         cfg.rules.add(r)
         Store.save(this, cfg)
         if (advanced) startActivity(Intent(this, RuleActivity::class.java).putExtra("i", cfg.rules.size - 1))
