@@ -10,11 +10,37 @@ import android.view.Gravity
 import android.view.HapticFeedbackConstants
 import android.view.MotionEvent
 import android.view.View
+import android.view.WindowInsets
 import android.view.ViewTreeObserver
 import android.widget.*
 
 class MainActivity : Activity() {
     private var save: () -> Unit = {}
+    private lateinit var content: FrameLayout
+    private lateinit var nav: NavBar
+    private lateinit var shell: LinearLayout
+
+    companion object { private var tab = 0 }
+
+    override fun onCreate(b: Bundle?) {
+        super.onCreate(b)
+        val p = Pal(this)
+        window.setBackgroundDrawable(ColorDrawable(p.bg))
+        content = FrameLayout(this)
+        nav = NavBar(this, p, listOf("Home" to 0, "Rules" to 1, "Look" to 2, "Settings" to 3)) { i ->
+            if (i != tab) { save(); tab = i; render() }
+        }
+        shell = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            addView(content, LinearLayout.LayoutParams(-1, 0, 1f)); addView(nav, LinearLayout.LayoutParams(-1, -2))
+            setOnApplyWindowInsetsListener { _, ins ->
+                val b = ins.getInsets(WindowInsets.Type.systemBars() or WindowInsets.Type.displayCutout())
+                content.setPadding(b.left, b.top, b.right, 0); nav.setPadding(b.left, 0, b.right, b.bottom)
+                WindowInsets.CONSUMED
+            }
+        }
+        setContentView(shell)
+    }
 
     override fun onResume() { super.onResume(); importPending(); render(); Sync.push(this, Store.load(this)) }
     override fun onPause() { super.onPause(); save() }
@@ -175,57 +201,189 @@ class MainActivity : Activity() {
         }
     }
 
+    /** Shows the current tab. Each tab builds its own form and sets [save] to write back whatever it edits. */
     private fun render() {
-        val cfg = Store.load(this)
+        save = {}
+        nav.setSelected(tab)
         val f = Form(this)
-        window.setBackgroundDrawable(ColorDrawable(f.p.bg))
-        f.head("Edge Light")
-
-        val row = LinearLayout(this)
-        fun pill(t: String, ok: Boolean, a: () -> Unit) =
-            row.addView(f.pill(t, ok, a), LinearLayout.LayoutParams(-2, -2).also { it.rightMargin = f.dp(8) })
-        pill("Notifications", listenerOn()) { startActivity(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS)) }
-        pill("Overlay", Settings.canDrawOverlays(this)) {
-            startActivity(Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:$packageName")))
+        val cfg = Store.load(this)
+        when (tab) {
+            0 -> home(f, cfg)
+            1 -> rules(f, cfg)
+            2 -> look(f, cfg)
+            else -> settings(f, cfg)
         }
-        pill("Lock screen", Overlay.acc != null) { startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)) }
-        pill("Calls", Ring.hasPermission(this)) { requestPermissions(arrayOf(android.Manifest.permission.READ_PHONE_STATE), 1) }
-        pill("Replace", Quiet.hasPermission(this)) { requestPermissions(arrayOf(android.Manifest.permission.POST_NOTIFICATIONS), 2) }
-        f.add(HorizontalScrollView(this).apply { isHorizontalScrollBarEnabled = false; addView(row) }, 12)
+        val keep = (content.getChildAt(0) as? ScrollView)?.scrollY ?: 0
+        val sv = f.scroll(false)
+        content.removeAllViews(); content.addView(sv)
+        // render() rebuilds the tab, so put the scroll position back (e.g. after deleting a rule).
+        if (keep > 0) sv.post { sv.scrollTo(0, keep) }
+    }
 
-        lateinit var en: Switch; lateinit var ong: Switch; lateinit var sum: Switch; lateinit var dnd: Switch; lateinit var wake: Switch; lateinit var mirror: Switch
+    private fun missing() = listOf(
+        Triple("Notification access", "Lets Edge Light see notifications", listenerOn()),
+        Triple("Display over other apps", "Lets the light draw on screen", Settings.canDrawOverlays(this)),
+        Triple("Lock screen overlay", "Shows the light over the lock screen", Overlay.acc != null),
+        Triple("Call state", "Follows the real ringing state", Ring.hasPermission(this)),
+        Triple("Post notifications", "Needed to replace an app's own popup", Quiet.hasPermission(this)),
+    )
+
+    private fun fixIt(i: Int) = when (i) {
+        0 -> startActivity(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS))
+        1 -> startActivity(Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:$packageName")))
+        2 -> startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
+        3 -> requestPermissions(arrayOf(android.Manifest.permission.READ_PHONE_STATE), 1)
+        else -> requestPermissions(arrayOf(android.Manifest.permission.POST_NOTIFICATIONS), 2)
+    }
+
+    /** One tappable list row: title, supporting text and a trailing status. */
+    private fun statusRow(f: Form, title: String, sub: String, ok: Boolean, click: () -> Unit) {
+        f.card(top = 8, click = click) {
+            val row = LinearLayout(this).apply { gravity = Gravity.CENTER_VERTICAL }
+            val col = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; addView(f.tv(title, 16f)); addView(f.tv(sub, 13f, f.p.dim)) }
+            row.addView(col, LinearLayout.LayoutParams(0, -2, 1f))
+            row.addView(f.tv(if (ok) "On" else "Turn on", 13f, if (ok) f.p.dim else f.p.primary, true))
+            f.add(row)
+        }
+    }
+
+    private fun home(f: Form, cfg: Config) {
+        f.head("Edge Light")
+        val ready = missing().take(2).all { it.third }
+        val miss = missing().filter { !it.third }
+        // The preview is the memorable thing: the user's own effect, lit around a phone.
+        val hero = EdgePreview(this, cfg.base)
+        hero.isClickable = true; hero.contentDescription = "Preview the light on screen"
+        hero.setOnClickListener { Preview.light(this, Store.load(this).base) }
+        f.add(hero, 16).layoutParams = LinearLayout.LayoutParams(f.dp(170), f.dp(320)).also { it.topMargin = f.dp(16); it.gravity = Gravity.CENTER_HORIZONTAL }
+        f.add(f.tv(
+            when { !cfg.enabled -> "Switched off"; !ready -> "Needs setup"; else -> "Ready" }, 28f, bold = true
+        ).apply { gravity = Gravity.CENTER }, 8)
+        f.add(f.tv(
+            when { !cfg.enabled -> "Notifications won't light the screen."; !ready -> "Turn on the permissions below to start."; else -> "Tap the phone to preview your light." },
+            14f, f.p.dim
+        ).apply { gravity = Gravity.CENTER }, 2)
+
+        f.card(24) {
+            f.switchRow("Light up for notifications", null, cfg.enabled) { v -> cfg.enabled = v; Store.save(this, cfg); render() }
+        }
+
+        if (miss.isNotEmpty()) {
+            f.section("Needs attention")
+            miss.forEach { (t, s, ok) -> statusRow(f, t, s, ok) { fixIt(missing().indexOfFirst { m -> m.first == t }) } }
+        }
+
+        val callIdx = cfg.rules.indexOfFirst { "call" in it.categories }
+        if (callIdx >= 0) {
+            val r = cfg.rules[callIdx]
+            f.section("Incoming calls")
+            ruleRow(f, cfg, r, "How a ringing call lights up")
+        }
+        val others = cfg.rules.filterIndexed { i, _ -> i != callIdx }
+        if (others.isNotEmpty()) {
+            f.section("Your rules")
+            others.forEach { ruleRow(f, cfg, it, summary(it)) }
+        }
+
+        f.section("Try it")
+        val row = LinearLayout(this)
+        fun chip(t: String, a: () -> Unit) = row.addView(f.mkButton(t, 1, a), LinearLayout.LayoutParams(-2, -2).also { it.rightMargin = f.dp(8) })
+        chip("Preview bubble") { val c = Store.load(this); Bubble.preview(this, c.base, c.bubbleMs) }
+        chip("Test incoming call") {
+            val c = Store.load(this)
+            val fx = Engine.resolve(c, Engine.ctxFor(this, "android.telecom", "", "call", "", "", 4, "")) ?: c.base
+            Ring.begin(this, c, fx, "test")
+            window.decorView.postDelayed({ Ring.end(this, "test") }, 6000)
+        }
+        f.add(HorizontalScrollView(this).apply { isHorizontalScrollBarEnabled = false; addView(row) }, 8)
+    }
+
+    /** Plays what a rule does: its effect, and a bubble if the rule (or the default popup style) asks for one. */
+    private fun previewRule(cfg: Config, r: Rule) {
+        val fx = cfg.base.over(r.fx)
+        val style = if (r.bubble == 0) cfg.bubble else r.bubble
+        if (style in 1..2) Bubble.preview(this, fx, cfg.bubbleMs) else Preview.light(this, fx)
+    }
+
+    /** A rule on the home screen: tap to edit, or preview it right there. */
+    private fun ruleRow(f: Form, cfg: Config, r: Rule, sub: String) {
+        f.card(8, click = { startActivity(Intent(this, RuleActivity::class.java).putExtra("i", cfg.rules.indexOf(r))) }) {
+            val row = LinearLayout(this).apply { gravity = Gravity.CENTER_VERTICAL }
+            val col = LinearLayout(this).apply {
+                orientation = LinearLayout.VERTICAL
+                addView(f.tv(r.name, 16f, if (r.on) f.p.text else f.p.dim, true))
+                addView(f.tv(if (r.on) sub else "Off", 13f, f.p.dim).apply { maxLines = 1; ellipsize = android.text.TextUtils.TruncateAt.END })
+            }
+            row.addView(col, LinearLayout.LayoutParams(0, -2, 1f))
+            row.addView(f.mkButton("Preview", 1) { previewRule(cfg, r) }.apply { setPadding(f.dp(18), f.dp(8), f.dp(18), f.dp(8)) },
+                LinearLayout.LayoutParams(-2, -2).also { it.leftMargin = f.dp(12) })
+            f.add(row)
+        }
+    }
+
+    private fun look(f: Form, cfg: Config) {
+        f.head("Look")
+        f.note("The default effect. Rules can change any part of it for particular notifications.")
+        lateinit var fx: EffectForm
+        f.card(16) { fx = EffectForm(f, cfg.base, false) { Effect.base() } }
+        f.button("Preview", 1) { cfg.base = Effect.base().over(fx.read()); Store.save(this, cfg); Preview.light(this, cfg.base) }
+        save = { cfg.base = Effect.base().over(fx.read()); Store.save(this, cfg) }
+    }
+
+    private fun settings(f: Form, cfg: Config) {
+        f.head("Settings")
+        lateinit var ong: Switch; lateinit var sum: Switch; lateinit var dnd: Switch; lateinit var wake: Switch; lateinit var mirror: Switch
         lateinit var gap: Slider; lateinit var bubbleDur: Slider
-        f.card(16) { en = f.switchRow("Enabled", "Light the screen edges for notifications", cfg.enabled) }
-
-        f.section("Behaviour")
+        f.section("Notifications")
         f.card {
             ong = f.switchRow("Ignore ongoing", "Music, timers, navigation", cfg.ignoreOngoing)
             sum = f.switchRow("Ignore group summaries", null, cfg.ignoreSummary)
             dnd = f.switchRow("Respect Do Not Disturb", "Stay dark for notifications DND silences", cfg.respectDnd)
-            wake = f.switchRow("Wake screen", "Turn the display on to show the light", cfg.wake)
-            f.button("Test incoming call (6 s)", 1) {
-                save()
-                val c = Store.load(this)
-                val fx = Engine.resolve(c, Engine.ctxFor(this, "android.telecom", "", "call", "", "", 4, "")) ?: c.base
-                Ring.begin(this, c, fx, "test")
-                window.decorView.postDelayed({ Ring.end(this, "test") }, 6000)
-            }
-            bubbleDur = f.slider("Bubble duration", 2000f, 10000f, 500f, cfg.bubbleMs.toFloat(), false, " ms")
-            f.button("Preview bubble", 1) { save(); val c = Store.load(this); Bubble.preview(this, c.base, c.bubbleMs) }
-            f.button(if (companions().isEmpty()) "Link a Wi-Fi network to list notification types" else "Wi-Fi linked · link another", 1) { linkWatch() }
-            mirror = f.switchRow("Mirror to watch", "Play the same light on your watch", cfg.watch)
             gap = f.slider("Minimum gap", 0f, 5000f, 100f, cfg.cooldownMs.toFloat(), false, " ms")
         }
+        f.section("Screen")
+        f.card { wake = f.switchRow("Wake screen", "Turn the display on to show the light", cfg.wake) }
+        f.section("Bubbles")
+        f.note("A bubble is a small pill that drops from the camera, with the light running around it. Choose the default here. Any rule can override it with its own Popup style.")
+        var bubbleStyle = cfg.bubble
+        f.card {
+            f.label("Default popup style")
+            f.chips(listOf("Off", "Bubble", "Bubble + replace native"), cfg.bubble) { v ->
+                bubbleStyle = v
+                if (v == 2 && !Quiet.hasPermission(this)) fixIt(4)
+            }
+            f.note("Replace native removes the app's own popup and leaves a quiet copy in your shade. It needs the Post notifications permission.")
+            bubbleDur = f.slider("Bubble duration", 2000f, 10000f, 500f, cfg.bubbleMs.toFloat(), false, " ms")
+            f.button("Preview bubble", 1) { save(); val c = Store.load(this); Bubble.preview(this, c.base, c.bubbleMs) }
+        }
+        f.section("Watch")
+        f.card { mirror = f.switchRow("Mirror to watch", "Play the same light on your watch", cfg.watch) }
+        f.section("Permissions")
+        missing().forEachIndexed { i, (t, s, ok) -> statusRow(f, t, s, ok) { fixIt(i) } }
+        f.section("Notification types")
+        f.note("Linking a Wi-Fi network lets rules list every notification type an app declares.")
+        f.button(if (companions().isEmpty()) "Link a Wi-Fi network" else "Wi-Fi linked · link another", 1) { linkWatch() }
+        f.section("About")
+        f.card {
+            f.add(f.tv("Edge Light", 18f, bold = true))
+            f.add(f.tv("Version ${BuildInfo.VERSION} (build ${BuildInfo.CODE}) · open source", 13f, f.p.dim))
+            f.add(f.tv("Commit ${BuildInfo.COMMIT} · built ${BuildInfo.TIME}", 13f, f.p.dim))
+            f.add(f.tv("Made by Kieran Davies", 15f), 12)
+            f.button("github.com/kierandavies06", 1) { try { startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(GITHUB))) } catch (e: Exception) {} }
+        }
+        save = {
+            cfg.ignoreOngoing = ong.isChecked; cfg.ignoreSummary = sum.isChecked; cfg.respectDnd = dnd.isChecked; cfg.wake = wake.isChecked
+            cfg.bubble = bubbleStyle; cfg.watch = mirror.isChecked; cfg.cooldownMs = gap.value()?.toInt() ?: 0; cfg.bubbleMs = bubbleDur.value()?.toInt() ?: 4000
+            Store.save(this, cfg)
+        }
+    }
 
-        f.section("Default effect")
-        lateinit var fx: EffectForm
-        f.card { fx = EffectForm(f, cfg.base, false) { Effect.base() } }
-
-        f.section("Rules")
+    private fun rules(f: Form, cfg: Config) {
+        f.head("Rules")
         f.note("Applied top to bottom. Each matching rule overrides only the settings it sets. Press and hold a rule, then drag to reorder.")
         f.group {
           cfg.rules.toList().forEach { r ->
-            val card = f.card(click = { save(); startActivity(Intent(this, RuleActivity::class.java).putExtra("i", cfg.rules.indexOf(r))) }) {
+            val card = f.card(click = { startActivity(Intent(this, RuleActivity::class.java).putExtra("i", cfg.rules.indexOf(r))) }) {
                 val top = LinearLayout(this).apply { gravity = Gravity.CENTER_VERTICAL }
                 val col = LinearLayout(this).apply {
                     orientation = LinearLayout.VERTICAL
@@ -259,30 +417,7 @@ class MainActivity : Activity() {
             dragToReorder(card, r, cfg)
           }
         }
-        f.button("Add rule", 2) { save(); startActivity(Intent(this, WizardActivity::class.java)) }
-        f.button("Add rule manually", 0) { save(); startActivity(Intent(this, RuleActivity::class.java).putExtra("i", -1)) }
-
-        f.section("About")
-        f.card {
-            f.add(f.tv("Edge Light", 18f, bold = true))
-            f.add(f.tv("Version ${BuildInfo.VERSION} (build ${BuildInfo.CODE}) · open source", 13f, f.p.dim))
-            f.add(f.tv("Commit ${BuildInfo.COMMIT} · built ${BuildInfo.TIME}", 13f, f.p.dim))
-            f.add(f.tv("Made by Kieran Davies", 15f), 12)
-            f.button("github.com/kierandavies06", 1) {
-                try { startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(GITHUB))) } catch (e: Exception) {}
-            }
-        }
-
-        save = {
-            cfg.enabled = en.isChecked; cfg.ignoreOngoing = ong.isChecked; cfg.ignoreSummary = sum.isChecked
-            cfg.respectDnd = dnd.isChecked; cfg.wake = wake.isChecked; cfg.watch = mirror.isChecked; cfg.cooldownMs = gap.value()?.toInt() ?: 0; cfg.bubbleMs = bubbleDur.value()?.toInt() ?: 4000
-            cfg.base = Effect.base().over(fx.read())
-            Store.save(this, cfg)
-        }
-        val keep = (findViewById<android.view.ViewGroup>(android.R.id.content)?.getChildAt(0) as? ScrollView)?.scrollY ?: 0
-        val sv = f.scroll()
-        setContentView(sv)
-        // render() rebuilds everything, so put the scroll position back (e.g. after moving a rule).
-        if (keep > 0) sv.post { sv.scrollTo(0, keep) }
+        f.button("Add rule", 2) { startActivity(Intent(this, WizardActivity::class.java)) }
+        f.button("Add rule manually", 0) { startActivity(Intent(this, RuleActivity::class.java).putExtra("i", -1)) }
     }
 }

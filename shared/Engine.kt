@@ -33,7 +33,7 @@ object Engine {
     fun decide(cfg: Config, c: Ctx): Outcome? {
         if (!cfg.enabled) return null
         var fx = cfg.base
-        var bubble = 0
+        var bubble = cfg.bubble
         for (r in cfg.rules) {
             if (!r.on || !matches(r, c)) continue
             if (r.suppress) return null

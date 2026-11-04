@@ -293,10 +293,11 @@ class Form(val c: Context) {
             .setNegativeButton("Cancel", null).show()
     }
 
-    fun scroll() = ScrollView(c).apply {
+    /** Insets are the caller's job when [insets] is false (the main screen pads the content and the nav bar separately). */
+    fun scroll(insets: Boolean = true) = ScrollView(c).apply {
         addView(root)
         clipToPadding = false
-        setOnApplyWindowInsetsListener { v, ins ->
+        if (insets) setOnApplyWindowInsetsListener { v, ins ->
             val b = ins.getInsets(WindowInsets.Type.systemBars() or WindowInsets.Type.displayCutout())
             v.setPadding(b.left, b.top, b.right, b.bottom)
             WindowInsets.CONSUMED
@@ -326,7 +327,7 @@ class EffectForm(f: Form, e: Effect, private val inherit: Boolean, base: () -> E
         glow = f.slider("Glow", 0f, 3f, 0.25f, e.glow, inherit, "")
         f.button("Preview", 2) {
             val fx = base().over(read())
-            Overlay.show(f.c, fx)
+            Preview.light(f.c, fx)
             if (Store.load(f.c).watch) Light.mirror?.invoke(f.c, fx)
         }
     }

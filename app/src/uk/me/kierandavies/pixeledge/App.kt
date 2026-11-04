@@ -38,3 +38,11 @@ object Sync {
         } catch (e: Exception) {}
     }
 }
+
+/** Shows an effect on this phone and, if "Mirror to watch" is on, on the watch too. Used by every preview button. */
+object Preview {
+    fun light(c: Context, fx: Effect) {
+        Overlay.show(c, fx)
+        if (Store.load(c).watch) Sync.fire(c, fx)
+    }
+}

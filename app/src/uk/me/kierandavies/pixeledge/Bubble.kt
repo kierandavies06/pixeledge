@@ -82,7 +82,7 @@ object Bubble {
     }
 
     fun preview(c: Context, fx: Effect, ms: Int) {
-        Overlay.show(c, fx)   // a bubble rule also runs the screen-edge ring
+        Preview.light(c, fx)   // a bubble rule also runs the screen-edge ring
         show(c, BubbleData("Edge Light", "Preview", "This is how a notification looks as a bubble",
             c.getDrawable(android.R.drawable.stat_notify_chat), null), fx, ms)
     }

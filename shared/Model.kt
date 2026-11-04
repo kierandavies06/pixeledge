@@ -116,12 +116,13 @@ class Config {
     var watch = true                     // phone only: forward fired effects to the watch
     var cooldownMs = 0
     var bubbleMs = 4000                  // how long a bubble stays on screen
+    var bubble = 0                       // default popup style when no rule sets one: 0 off, 1 bubble, 2 bubble + replace native
     var base = Effect.base()
     val rules = mutableListOf<Rule>()
 
     fun toJson() = JSONObject().also {
         it.put("enabled", enabled); it.put("ignoreOngoing", ignoreOngoing); it.put("ignoreSummary", ignoreSummary)
-        it.put("respectDnd", respectDnd); it.put("wake", wake); it.put("watch", watch); it.put("cooldown", cooldownMs); it.put("bubbleMs", bubbleMs); it.put("base", base.toJson())
+        it.put("respectDnd", respectDnd); it.put("wake", wake); it.put("watch", watch); it.put("cooldown", cooldownMs); it.put("bubbleMs", bubbleMs); it.put("bubble", bubble); it.put("base", base.toJson())
         it.put("rules", JSONArray().also { a -> rules.forEach { r -> a.put(r.toJson()) } })
     }
 
@@ -129,7 +130,7 @@ class Config {
         fun from(j: JSONObject) = Config().also { c ->
             c.enabled = j.optBoolean("enabled", true); c.ignoreOngoing = j.optBoolean("ignoreOngoing", true)
             c.ignoreSummary = j.optBoolean("ignoreSummary", true); c.respectDnd = j.optBoolean("respectDnd"); c.wake = j.optBoolean("wake"); c.watch = j.optBoolean("watch", true)
-            c.cooldownMs = j.optInt("cooldown"); c.bubbleMs = j.optInt("bubbleMs", 4000); c.base = Effect.base().over(Effect.from(j.optJSONObject("base")))
+            c.cooldownMs = j.optInt("cooldown"); c.bubbleMs = j.optInt("bubbleMs", 4000); c.bubble = j.optInt("bubble"); c.base = Effect.base().over(Effect.from(j.optJSONObject("base")))
             j.optJSONArray("rules")?.let { a -> for (i in 0 until a.length()) c.rules.add(Rule.from(a.getJSONObject(i))) }
         }
 
