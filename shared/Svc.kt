@@ -15,7 +15,46 @@ class Svc : NotificationListenerService() {
     private val seen = HashMap<String, Int>()
 
     override fun onCreate() { super.onCreate(); Ring.register(this) }
-    override fun onListenerConnected() { Ring.register(this) }
+    override fun onListenerConnected() {
+        Ring.register(this); live = this
+        // Seed the list of known notification types from what's in the shade right now.
+        try {
+            val rk = Ranking()
+            activeNotifications?.forEach { if (currentRanking.getRanking(it.key, rk)) learn(this, it.packageName, rk.channel) }
+        } catch (e: Exception) {}
+    }
+    override fun onListenerDisconnected() { if (live === this) live = null }
+
+    companion object {
+        @Volatile var live: Svc? = null
+
+        /**
+         * The notification types (channels) of an app. Android only lets a listener enumerate other apps' channels if its app holds a
+         * companion-device association (see MainActivity.linkWatch: we link a Wi-Fi network for this). Without one the query throws,
+         * so we also learn types as notifications arrive and remember them; both sources are merged.
+         */
+        fun channels(c: android.content.Context, pkg: String): List<Pair<String, String>> {
+            val out = LinkedHashMap<String, String>()
+            try {
+                live?.getNotificationChannels(pkg, android.os.Process.myUserHandle())
+                    ?.filter { android.os.Build.VERSION.SDK_INT < 30 || it.conversationId == null }
+                    ?.forEach { out[it.id] = it.name.toString() }
+            } catch (e: Exception) { Log.d("EdgeLight", "getNotificationChannels($pkg) failed: $e") }
+            val j = try { org.json.JSONObject(c.getSharedPreferences("seen", 0).getString("channels", "{}")!!) } catch (e: Exception) { org.json.JSONObject() }
+            j.optJSONObject(pkg)?.let { o -> o.keys().forEach { k -> out.putIfAbsent(k, o.optString(k)) } }
+            return out.entries.map { it.key to it.value }.sortedBy { it.second.lowercase() }
+        }
+
+        @Synchronized fun learn(c: android.content.Context, pkg: String, ch: android.app.NotificationChannel?) {
+            if (ch == null || (android.os.Build.VERSION.SDK_INT >= 30 && ch.conversationId != null)) return
+            val sp = c.getSharedPreferences("seen", 0)
+            val j = try { org.json.JSONObject(sp.getString("channels", "{}")!!) } catch (e: Exception) { org.json.JSONObject() }
+            val o = j.optJSONObject(pkg) ?: org.json.JSONObject().also { j.put(pkg, it) }
+            if (o.optString(ch.id) == ch.name.toString()) return
+            o.put(ch.id, ch.name.toString())
+            sp.edit().putString("channels", j.toString()).apply()
+        }
+    }
     private var last = 0L
 
     private fun skip(sbn: StatusBarNotification, why: String) { Log.d("EdgeLight", "skip ${sbn.packageName}: $why") }
@@ -23,6 +62,7 @@ class Svc : NotificationListenerService() {
     override fun onNotificationPosted(sbn: StatusBarNotification, rm: RankingMap) {
         Log.d("EdgeLight", "posted ${sbn.packageName} flags=${sbn.notification.flags}")
         if (sbn.packageName == packageName) return
+        Ranking().also { if (rm.getRanking(sbn.key, it)) learn(this, sbn.packageName, it.channel) }
         val cfg = Store.load(this)
         if (!cfg.enabled) return skip(sbn, "disabled")
         val n = sbn.notification

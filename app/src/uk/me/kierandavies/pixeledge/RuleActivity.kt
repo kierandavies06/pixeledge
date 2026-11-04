@@ -32,7 +32,12 @@ class RuleActivity : Activity() {
             notPkgs = f.field("Not from apps", r.notPkgs.joinToString(", "))
             f.button("Pick apps to exclude…", 1) { pickApps(notPkgs) }
             anyRe = f.field("Anywhere (title, text, messages…) matches regex", r.anyRe)
-            chans = f.field("Channel id contains", r.channels.joinToString(", "))
+            chans = f.field("Notification types: channel id contains, or package/channel", r.channels.joinToString(", "))
+            f.button("Pick notification types…", 1) {
+                val ps = csv(pkgs.text.toString())
+                if (ps.isEmpty()) Toast.makeText(this, "Choose From apps first", Toast.LENGTH_SHORT).show()
+                else pickChannels(this, ps, csv(chans.text.toString())) { chans.setText(it.joinToString(", ")) }
+            }
             cats = f.field("Category (msg, email, call, social, promo, alarm…)", r.categories.joinToString(", "))
             title = f.field("Title matches regex", r.titleRe)
             body = f.field("Text matches regex", r.textRe)
@@ -115,17 +120,5 @@ class RuleActivity : Activity() {
         setContentView(f.scroll())
     }
 
-    private fun pickApps(field: EditText) {
-        val pm = packageManager
-        val apps = pm.queryIntentActivities(Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER), 0)
-            .map { it.activityInfo.packageName to it.loadLabel(pm).toString() }
-            .distinctBy { it.first }.sortedBy { it.second.lowercase() }
-        val cur = csv(field.text.toString()).toMutableSet()
-        AlertDialog.Builder(this).setTitle("Apps")
-            .setMultiChoiceItems(apps.map { it.second }.toTypedArray(), BooleanArray(apps.size) { apps[it].first in cur }) { _, i, on ->
-                if (on) cur.add(apps[i].first) else cur.remove(apps[i].first)
-            }
-            .setPositiveButton("OK") { _, _ -> field.setText(cur.joinToString(", ")) }
-            .show()
-    }
+    private fun pickApps(field: EditText) = pickApps(this, csv(field.text.toString())) { field.setText(it.joinToString(", ")) }
 }

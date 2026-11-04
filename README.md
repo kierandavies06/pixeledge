@@ -65,12 +65,12 @@ Notes:
 
 ## Rules
 
-Open **Rules → Add rule**. A rule has *conditions* (all must match) and an *action*.
+Open **Rules → Add rule** for a step-by-step wizard (what to light up for, which notification types, when, how it looks, popup style), or **Add rule manually** for the full editor. A rule has *conditions* (all must match) and an *action*.
 
 | Condition | Meaning |
 | --- | --- |
 | From apps / Not from apps | Package names (pick from the installed apps) |
-| Channel contains | Substring of the notification channel id |
+| Notification types | An app's own notification types (channels), e.g. only a messaging app's "Messages". See [Notification types](#notification-types-channels) |
 | Category | Notification category, e.g. `msg`, `email`, `call`, `social`, `promo`, `alarm` |
 | Title / Text matches regex | Case-insensitive |
 | Anywhere matches regex | Title, text, expanded text, sub-text and message lines together |
@@ -94,6 +94,24 @@ Each rule has a **Popup style** (the rules engine decides per notification, so y
 Android gives apps no way to hide another app's popup while keeping the notification, so "replace" works by cancelling the original and posting a quiet copy. That means: the stock popup may flash for a moment before it is removed; the copy loses rich formatting such as chat threading; and the watch receives the copy rather than the original. It needs the **Replace** permission (notifications) granted in the status pills. Notifications that don't match the rule are untouched. On a locked screen a bubble hides private content, following your system lock-screen setting.
 
 The Behaviour section has a **Bubble duration** slider and a **Preview bubble** button, and the rule editor can preview a rule's effect as a bubble.
+
+### Notification types (channels)
+
+Apps group their notifications into *types* (Android calls them channels), such as "Messages" or "Stories". A rule can match just one of an app's types instead of the whole app. Use **Choose types…** in the wizard or **Pick notification types…** in the rule editor, or type a channel id yourself. Entries are stored as `package/channelId`, and a plain entry matches any channel id containing it.
+
+**How the list is built, and a loophole to know about.** Android only lets a notification listener list *other* apps' channels if its app holds a *companion-device association*, a record normally created when you pair an app with a watch or similar gadget. Edge Light is not a companion app, so without help the query fails. Two things fill the list:
+
+1. **Learned types.** Edge Light remembers each type it sees as notifications arrive (and reads those currently in your shade when it starts). This needs no setup, but a type only appears once the app has sent it.
+2. **Link a Wi-Fi network (optional).** The main screen has a **Link a Wi-Fi network to list notification types** button. It creates a companion association with a Wi-Fi network of your choice, and in testing on a Pixel 9 that is enough for Android to hand over every type an app has declared, even ones that have never fired. A paired watch is not offered by the chooser because it is already connected, so a Wi-Fi network is the practical choice.
+
+Honest caveats, because this is a loophole and not a supported use of the API:
+
+- It relies on Android checking only that *some* association exists, not what kind of device it is. I haven't read the platform source to confirm that, and a future Android version could close it. If it stops working, the learned list still works.
+- The association gives Edge Light no access to the network or to any traffic. It only changes how the system classifies the app.
+- You can remove it at any time (Android's companion-device settings, or uninstall the app).
+- It is only used to read channel names and ids; nothing is sent anywhere, as the app has no internet permission.
+
+If a type isn't listed, **Type one…** in the picker adds a channel id by hand. You can find ids with `adb shell dumpsys notification | grep -i "<package>"`.
 
 ### Import rules from a file
 
