@@ -10,6 +10,7 @@ class Pal(private val c: Context, dark: Boolean? = null) {
     private fun k(d: Int, l: Int) = c.getColor(if (night) d else l)
     val bg = k(R.color.system_neutral1_900, R.color.system_neutral1_50)
     val card = k(R.color.system_neutral1_800, R.color.system_neutral1_0)
+    val nav = k(R.color.system_neutral1_800, R.color.system_neutral2_100)
     val field = k(R.color.system_neutral1_700, R.color.system_neutral2_100)
     val text = k(R.color.system_neutral1_100, R.color.system_neutral1_900)
     val dim = k(R.color.system_neutral2_300, R.color.system_neutral2_700)

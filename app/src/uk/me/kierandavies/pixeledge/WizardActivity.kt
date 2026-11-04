@@ -207,7 +207,7 @@ class WizardActivity : Activity() {
 
     private fun preview(l: Look) {
         val fx = cfg.base.over(l.fx)
-        Overlay.show(this, fx)
+        Preview.light(this, fx)
         if (popup != 0) Bubble.preview(this, fx, cfg.bubbleMs)
     }
 
