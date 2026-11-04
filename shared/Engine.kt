@@ -52,10 +52,17 @@ object Engine {
         Regex(p, RegexOption.IGNORE_CASE).containsMatchIn(s)
     } catch (e: Exception) { false }
 
+    /** A channel entry is either "package/channelId" (that app's channel, exact) or a plain substring of the channel id. */
+    private fun chanMatch(e: String, c: Ctx): Boolean {
+        val i = e.indexOf('/')
+        if (i > 0 && e.substring(0, i).all { it.isLetterOrDigit() || it == '.' || it == '_' }) return e.substring(0, i) == c.pkg && e.substring(i + 1).equals(c.channel, true)
+        return c.channel.contains(e, true)
+    }
+
     fun matches(r: Rule, c: Ctx): Boolean {
         if (r.pkgs.isNotEmpty() && c.pkg !in r.pkgs) return false
         if (c.pkg in r.notPkgs) return false
-        if (r.channels.isNotEmpty() && r.channels.none { c.channel.contains(it, true) }) return false
+        if (r.channels.isNotEmpty() && r.channels.none { chanMatch(it, c) }) return false
         if (r.categories.isNotEmpty() && c.category !in r.categories) return false
         if (c.importance < r.minImp) return false
         if (!re(r.anyRe, c.all)) return false

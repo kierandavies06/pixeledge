@@ -49,7 +49,7 @@ class MainActivity : Activity() {
         if (r.pkgs.isNotEmpty()) s += r.pkgs.joinToString(", ") { appLabel(it) }
         if (r.notPkgs.isNotEmpty()) s += "not " + r.notPkgs.joinToString(", ") { appLabel(it) }
         if (r.anyRe.isNotEmpty()) s += "any /${r.anyRe}/"
-        if (r.channels.isNotEmpty()) s += "channel ~ " + r.channels.joinToString("/")
+        if (r.channels.isNotEmpty()) s += "type " + r.channels.joinToString("/") { it.substringAfter('/') }
         if (r.categories.isNotEmpty()) s += r.categories.joinToString("/")
         if (r.titleRe.isNotEmpty()) s += "title /${r.titleRe}/"
         if (r.textRe.isNotEmpty()) s += "text /${r.textRe}/"
@@ -146,6 +146,35 @@ class MainActivity : Activity() {
         }
     }
 
+    @Suppress("DEPRECATION")
+    private fun companions(): List<String> = try { getSystemService(android.companion.CompanionDeviceManager::class.java).associations } catch (e: Exception) { emptyList() }
+
+    /**
+     * Registers Edge Light as a companion app of a Wi-Fi network. This is a deliberate loophole: Android only lets a notification
+     * listener list other apps' notification channels if the app holds a companion-device association, and it appears not to care what
+     * kind of "device" that is. A Wi-Fi network needs no Bluetooth pairing and (unlike a connected watch) shows up in the chooser.
+     * The association gives Edge Light no access to the network. See "Notification types" in the README.
+     */
+    @Suppress("DEPRECATION")
+    private fun linkWatch() {
+        val cdm = getSystemService(android.companion.CompanionDeviceManager::class.java)
+        try { cdm.associate(android.companion.AssociationRequest.Builder().addDeviceFilter(android.companion.WifiDeviceFilter.Builder().build()).build(), object : android.companion.CompanionDeviceManager.Callback() {
+            override fun onDeviceFound(chooser: android.content.IntentSender) {
+                try { startIntentSenderForResult(chooser, 77, null, 0, 0, 0) } catch (e: Exception) { Toast.makeText(this@MainActivity, "Couldn't open the device chooser", Toast.LENGTH_LONG).show() }
+            }
+            override fun onFailure(error: CharSequence?) { Toast.makeText(this@MainActivity, "Linking failed: $error", Toast.LENGTH_LONG).show() }
+        }, null) } catch (e: Exception) { Toast.makeText(this, "Linking failed: ${e.message}", Toast.LENGTH_LONG).show() }
+    }
+
+    override fun onActivityResult(code: Int, res: Int, data: Intent?) {
+        super.onActivityResult(code, res, data)
+        if (code == 77 && res == RESULT_OK) {
+            // Reconnect the listener so it picks up its new standing, then refresh.
+            android.service.notification.NotificationListenerService.requestRebind(android.content.ComponentName(this, Svc::class.java))
+            render()
+        }
+    }
+
     private fun render() {
         val cfg = Store.load(this)
         val f = Form(this)
@@ -183,6 +212,7 @@ class MainActivity : Activity() {
             }
             bubbleDur = f.slider("Bubble duration", 2000f, 10000f, 500f, cfg.bubbleMs.toFloat(), false, " ms")
             f.button("Preview bubble", 1) { save(); val c = Store.load(this); Bubble.preview(this, c.base, c.bubbleMs) }
+            f.button(if (companions().isEmpty()) "Link a Wi-Fi network to list notification types" else "Wi-Fi linked · link another", 1) { linkWatch() }
             mirror = f.switchRow("Mirror to watch", "Play the same light on your watch", cfg.watch)
             gap = f.slider("Minimum gap", 0f, 5000f, 100f, cfg.cooldownMs.toFloat(), false, " ms")
         }

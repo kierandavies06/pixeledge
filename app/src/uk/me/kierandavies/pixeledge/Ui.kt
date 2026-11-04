@@ -20,6 +20,7 @@ import android.text.TextWatcher
 import android.view.Gravity
 import android.view.MotionEvent
 import android.view.View
+import android.view.ViewGroup
 import android.view.WindowInsets
 import android.widget.*
 import kotlin.math.roundToInt
@@ -338,17 +339,107 @@ class EffectForm(f: Form, e: Effect, private val inherit: Boolean, base: () -> E
     }
 }
 
-/** Multi-choice dialog over the launchable apps; [done] gets the chosen package names. */
+private fun checkList(a: android.app.Activity, title: String, n: Int, search: Boolean, row: (Int, ViewGroup?) -> Triple<Drawable?, String, String>, key: (Int) -> String, current: Set<String>, neutral: Pair<String, (Set<String>) -> Unit>? = null, done: (Set<String>) -> Unit) {
+    val dens = a.resources.displayMetrics.density
+    val picked = current.toMutableSet()
+    var shown = (0 until n).toList()
+    val list = ListView(a)
+    val adapter = object : BaseAdapter() {
+        override fun getCount() = shown.size
+        override fun getItem(p: Int) = shown[p]
+        override fun getItemId(p: Int) = shown[p].toLong()
+        override fun getView(p: Int, v: View?, parent: ViewGroup): View {
+            val idx = shown[p]
+            val (icon, label, sub) = row(idx, parent)
+            val line = (v as? LinearLayout) ?: LinearLayout(a).apply {
+                gravity = Gravity.CENTER_VERTICAL; setPadding((20 * dens).toInt(), (8 * dens).toInt(), (20 * dens).toInt(), (8 * dens).toInt())
+                addView(ImageView(a), LinearLayout.LayoutParams((40 * dens).toInt(), (40 * dens).toInt()).also { it.rightMargin = (16 * dens).toInt() })
+                addView(LinearLayout(a).apply { orientation = LinearLayout.VERTICAL; addView(TextView(a).apply { textSize = 16f }); addView(TextView(a).apply { textSize = 12f; alpha = 0.7f }) }, LinearLayout.LayoutParams(0, -2, 1f))
+                addView(CheckBox(a).apply { isClickable = false; isFocusable = false })
+            }
+            val img = line.getChildAt(0) as ImageView; img.setImageDrawable(icon); img.visibility = if (icon == null) View.GONE else View.VISIBLE
+            val col = line.getChildAt(1) as LinearLayout
+            (col.getChildAt(0) as TextView).text = label
+            (col.getChildAt(1) as TextView).apply { text = sub; visibility = if (sub.isEmpty()) View.GONE else View.VISIBLE }
+            (line.getChildAt(2) as CheckBox).isChecked = key(idx) in picked
+            return line
+        }
+    }
+    list.adapter = adapter
+    list.setOnItemClickListener { _, _, p, _ -> val k = key(shown[p]); if (!picked.add(k)) picked.remove(k); adapter.notifyDataSetChanged() }
+    val box = LinearLayout(a).apply { orientation = LinearLayout.VERTICAL }
+    if (search) box.addView(EditText(a).apply {
+        hint = "Search"; setSingleLine(); setPadding((24 * dens).toInt(), (12 * dens).toInt(), (24 * dens).toInt(), (12 * dens).toInt())
+        addTextChangedListener(object : android.text.TextWatcher {
+            override fun afterTextChanged(e: android.text.Editable?) {
+                val q = e.toString().trim().lowercase()
+                shown = (0 until n).filter { q.isEmpty() || row(it, null).second.lowercase().contains(q) }
+                adapter.notifyDataSetChanged()
+            }
+            override fun beforeTextChanged(s: CharSequence?, x: Int, y: Int, z: Int) {}
+            override fun onTextChanged(s: CharSequence?, x: Int, y: Int, z: Int) {}
+        })
+    })
+    box.addView(list, LinearLayout.LayoutParams(-1, 0, 1f))
+    android.app.AlertDialog.Builder(a).setTitle(title).setView(box)
+        .setPositiveButton("OK") { _, _ -> done(picked) }.setNegativeButton("Cancel", null)
+        .also { b -> neutral?.let { n -> b.setNeutralButton(n.first) { _, _ -> n.second(picked) } } }.show()
+}
+
+/** Searchable list of launchable apps with their icons; [done] gets the chosen package names. */
 fun pickApps(a: android.app.Activity, current: List<String>, done: (List<String>) -> Unit) {
     val pm = a.packageManager
     val apps = pm.queryIntentActivities(android.content.Intent(android.content.Intent.ACTION_MAIN).addCategory(android.content.Intent.CATEGORY_LAUNCHER), 0)
-        .map { it.activityInfo.packageName to it.loadLabel(pm).toString() }
-        .distinctBy { it.first }.sortedBy { it.second.lowercase() }
-    val cur = current.toMutableSet()
-    android.app.AlertDialog.Builder(a).setTitle("Apps")
-        .setMultiChoiceItems(apps.map { it.second }.toTypedArray(), BooleanArray(apps.size) { apps[it].first in cur }) { _, i, on ->
-            if (on) cur.add(apps[i].first) else cur.remove(apps[i].first)
+        .distinctBy { it.activityInfo.packageName }.map { Triple(it.activityInfo.packageName, it.loadLabel(pm).toString(), it) }.sortedBy { it.second.lowercase() }
+    val icons = HashMap<Int, Drawable?>()
+    checkList(a, "Apps", apps.size, true,
+        { i, _ -> Triple(icons.getOrPut(i) { apps[i].third.loadIcon(pm) }, apps[i].second, "") },
+        { apps[it].first }, current.toSet()) { done(it.toList()) }
+}
+
+/** Asks for a channel id by hand. With a single app the entry is stored as "package/id"; with several it is a plain id that matches any of them. */
+private fun typeManually(a: android.app.Activity, pkgs: List<String>, current: Set<String>, done: (List<String>) -> Unit) {
+    val dens = a.resources.displayMetrics.density
+    val field = EditText(a).apply { hint = "Channel id, e.g. messages"; setSingleLine() }
+    val box = FrameLayout(a).apply { setPadding((24 * dens).toInt(), (8 * dens).toInt(), (24 * dens).toInt(), 0); addView(field) }
+    android.app.AlertDialog.Builder(a).setTitle("Add a notification type").setView(box)
+        .setMessage("The id is the app's internal name for the notification type. It matches the notification's channel id. Names shown in the app's own settings often differ, so check the id with the learned list or adb.")
+        .setPositiveButton("Add") { _, _ ->
+            val id = field.text.toString().trim()
+            if (id.isNotEmpty()) done((current + if (pkgs.size == 1 && '/' !in id) "${pkgs[0]}/$id" else id).toList())
+        }.setNegativeButton("Cancel", null).show()
+}
+
+/**
+ * Lists the notification types (channels) the given apps have declared, so a rule can target e.g. only a messaging app's
+ * "Messages" channel. Entries come back as "package/channelId".
+ */
+fun pickChannels(a: android.app.Activity, pkgs: List<String>, current: List<String>, done: (List<String>) -> Unit) {
+    val pm = a.packageManager
+    class Row(val key: String, val app: String, val name: String, val sub: String, val icon: Drawable?)
+    val rows = ArrayList<Row>()
+    for (p in pkgs) {
+        val label = try { pm.getApplicationLabel(pm.getApplicationInfo(p, 0)).toString() } catch (e: Exception) { p }
+        val icon = try { pm.getApplicationIcon(p) } catch (e: Exception) { null }
+        Svc.channels(a, p).forEach { rows.add(Row("$p/${it.first}", label, it.second, if (pkgs.size > 1) label else "", icon)) }
+    }
+    if (rows.isEmpty()) {
+        val granted = android.provider.Settings.Secure.getString(a.contentResolver, "enabled_notification_listeners")?.contains(a.packageName) == true
+        val b = android.app.AlertDialog.Builder(a).setTitle("Notification types")
+        if (!granted) {
+            b.setMessage("Edge Light needs notification access to learn an app's notification types.")
+                .setPositiveButton("Open settings") { _, _ -> a.startActivity(android.content.Intent(android.provider.Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS)) }
+                .setNegativeButton("Cancel", null)
+        } else {
+            // Without a companion association Android doesn't let us list another app's channels; they are learned as its notifications arrive.
+            b.setMessage("No notification types are known for these apps yet. Link a Wi-Fi network on the main screen to list them all, or they are learned as the app sends notifications. You can also type one in.")
+                .setPositiveButton("OK", null)
         }
-        .setPositiveButton("OK") { _, _ -> done(cur.toList()) }
-        .show()
+        b.setNeutralButton("Type one…") { _, _ -> typeManually(a, pkgs, current.toSet(), done) }
+        b.show()
+        return
+    }
+    checkList(a, "Notification types", rows.size, false,
+        { i, _ -> Triple(rows[i].icon, rows[i].name, rows[i].sub) },
+        { rows[it].key }, current.toSet(), "Type one…" to { picked -> typeManually(a, pkgs, picked, done) }) { done(it.toList()) }
 }

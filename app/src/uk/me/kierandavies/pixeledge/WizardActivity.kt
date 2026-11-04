@@ -31,6 +31,7 @@ class WizardActivity : Activity() {
     private var step = 0
     private var kind = -1                 // 0 app, 1 words, 2 calls, 3 important
     private var pkgs = listOf<String>()
+    private var types = listOf<String>()   // "package/channelId"; empty = every type
     private var skip = listOf<String>()
     private var words = ""
     private var timeKind = 0              // 0 any, 1 night, 2 work hours, 3 custom
@@ -49,6 +50,12 @@ class WizardActivity : Activity() {
     override fun onBackPressed() { if (step > 0) { step--; show() } else super.onBackPressed() }
 
     private fun appLabel(p: String) = try { packageManager.getApplicationLabel(packageManager.getApplicationInfo(p, 0)).toString() } catch (e: Exception) { p }
+
+    private fun typeName(t: String): String {
+        val p = t.substringBefore('/'); val id = t.substringAfter('/')
+        val n = Svc.channels(this, p).firstOrNull { it.first == id }?.second ?: id
+        return if (pkgs.size > 1) "${appLabel(p)}: $n" else n
+    }
 
     private fun escape(w: String) = w.replace(Regex("[^\\p{L}\\p{N}\\s]")) { "\\" + it.value }
     private fun wordList() = csv(words)
@@ -86,7 +93,13 @@ class WizardActivity : Activity() {
                 0 -> {
                     f.section("Which apps?")
                     f.card { f.add(f.tv(if (pkgs.isEmpty()) "No apps chosen yet" else pkgs.joinToString(", ") { appLabel(it) }, 16f)) }
-                    f.button("Choose apps…", 1) { pickApps(this, pkgs) { pkgs = it; show() } }
+                    f.button("Choose apps…", 1) { pickApps(this, pkgs) { pkgs = it; types = types.filter { t -> t.substringBefore('/') in it }; show() } }
+                    if (pkgs.isNotEmpty()) {
+                        f.section("Which notifications?")
+                        f.note("Apps send different types of notification. Pick the ones you want, or leave it on all. The full list needs a Wi-Fi network linked on the main screen; otherwise types appear as the app sends them. You can also type one in.")
+                        f.card { f.add(f.tv(if (types.isEmpty()) "All types" else types.joinToString(", ") { typeName(it) }, 16f)) }
+                        f.button("Choose types…", 1) { pickChannels(this, pkgs, types) { types = it; show() } }
+                    }
                 }
                 1 -> {
                     f.section("Which names or words?")
@@ -200,7 +213,7 @@ class WizardActivity : Activity() {
 
     private fun summary(): String {
         val what = when (kind) {
-            0 -> "Notifications from ${pkgs.joinToString(", ") { appLabel(it) }}"
+            0 -> "Notifications from ${pkgs.joinToString(", ") { appLabel(it) }}" + if (types.isNotEmpty()) " (${types.joinToString(", ") { typeName(it) }} only)" else ""
             1 -> "Notifications mentioning ${wordList().joinToString(", ")}" + if (skip.isNotEmpty()) " (not from ${skip.joinToString(", ") { appLabel(it) }})" else ""
             2 -> "Incoming calls"
             else -> "Important notifications"
@@ -214,7 +227,7 @@ class WizardActivity : Activity() {
         val r = Rule()
         r.name = n.ifBlank { suggestName() }
         when (kind) {
-            0 -> r.pkgs = pkgs
+            0 -> { r.pkgs = pkgs; r.channels = types }
             1 -> { r.anyRe = "\\b(" + wordList().joinToString("|") { escape(it) } + ")"; r.notPkgs = skip }
             2 -> r.categories = listOf("call")
             3 -> r.minImp = 4
